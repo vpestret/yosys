@@ -336,7 +336,7 @@ struct ShowWorker
 		fprintf(f, "rankdir=\"LR\";\n");
 		fprintf(f, "remincross=true;\n");
 
-		std::set<std::string> all_sources, all_sinks;
+		std::set<std::string> all_sources, all_sinks, all_internals;
 
 		std::map<std::string, std::string> wires_on_demand;
 		for (auto &it : module->wires_) {
@@ -346,13 +346,18 @@ struct ShowWorker
 			if (it.second->port_input || it.second->port_output)
 				shape = "octagon";
 			if (it.first[0] == '\\') {
-				fprintf(f, "n%d [ shape=%s, label=\"%s\", %s, fontcolor=\"black\" ];\n",
-						id2num(it.first), shape, findLabel(it.first.str()),
-						nextColor(RTLIL::SigSpec(it.second), "color=\"black\"").c_str());
+        if (it.second->port_input || it.second->port_output) {
+          fprintf(f, "n%d [ shape=%s, label=\"%s\", %s, fontcolor=\"black\" ];\n",
+                  id2num(it.first), shape, findLabel(it.first.str()),
+                  nextColor(RTLIL::SigSpec(it.second), "color=\"black\"").c_str());
+        }
 				if (it.second->port_input)
 					all_sources.insert(stringf("n%d", id2num(it.first)));
 				else if (it.second->port_output)
 					all_sinks.insert(stringf("n%d", id2num(it.first)));
+        else {
+          all_internals.insert(stringf("n%d", id2num(it.first)));
+        }
 			} else {
 				wires_on_demand[stringf("n%d", id2num(it.first))] = it.first.str();
 			}
@@ -366,8 +371,13 @@ struct ShowWorker
 			fprintf(f, "}\n");
 
 			fprintf(f, "{ rank=\"sink\";");
+      unsigned idx = 0;
 			for (auto n : all_sinks)
-				fprintf(f, " %s;", n.c_str());
+        if (++idx == all_sinks.size()) {
+          fprintf(f, " %s [style=invis]; rankdir=TB", n.c_str());
+        } else {
+          fprintf(f, " %s ->", n.c_str());
+        }
 			fprintf(f, "}\n");
 		}
 
@@ -391,16 +401,16 @@ struct ShowWorker
 			std::string label_string = "{{";
 
 			for (auto &p : in_ports)
-				label_string += stringf("<p%d> %s%s|", id2num(p), escape(p.str()),
-						genSignedLabels && it.second->hasParam(p.str() + "_SIGNED") &&
-						it.second->getParam(p.str() + "_SIGNED").as_bool() ? "*" : "");
+				label_string += stringf("<p%d>|", id2num(p));
 			if (label_string[label_string.size()-1] == '|')
 				label_string = label_string.substr(0, label_string.size()-1);
 
-			label_string += stringf("}|%s\\n%s|{", findLabel(it.first.str()), escape(it.second->type.str()));
+      std::string name_str = it.second->type.str();
+      name_str = name_str.substr(2, name_str.length() - 3);
+			label_string += stringf("}|%s|{", name_str.c_str());
 
 			for (auto &p : out_ports)
-				label_string += stringf("<p%d> %s|", id2num(p), escape(p.str()));
+				label_string += stringf("<p%d>|", id2num(p));
 			if (label_string[label_string.size()-1] == '|')
 				label_string = label_string.substr(0, label_string.size()-1);
 
@@ -517,6 +527,16 @@ struct ShowWorker
 				else
 					fprintf(f, "%s [ shape=point ];\n", it.first.c_str());
 			}
+
+      if (all_internals.find(it.first) != all_internals.end()) {
+        if (it.second.out.size() == 1) {
+          if (it.second.in.size() != 1) throw std::runtime_error("two drivers detected");
+          fprintf(f, "%s:e -> %s:w [%s, %s];\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
+          continue;
+        } else {
+					fprintf(f, "%s [ shape=point ];\n", it.first.c_str());
+        }
+      }
 			for (auto &it2 : it.second.in)
 				fprintf(f, "%s:e -> %s:w [%s, %s];\n", it2.c_str(), it.first.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
 			for (auto &it2 : it.second.out)
