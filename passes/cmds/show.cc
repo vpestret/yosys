@@ -50,6 +50,7 @@ struct ShowWorker
 	std::map<std::string, net_conn> net_conn_map;
 
 	FILE *f;
+	FILE *f2;
 	RTLIL::Design *design;
 	RTLIL::Module *module;
 	uint32_t currentColor;
@@ -336,7 +337,21 @@ struct ShowWorker
 		fprintf(f, "rankdir=\"LR\";\n");
 		fprintf(f, "remincross=true;\n");
 
+		fprintf(f2, "<module name=\"%s\">\n", escape(module->name.str()));
+
 		std::set<std::string> all_sources, all_sinks, all_internals;
+    struct XMLRecord {
+      XMLRecord() {}
+      XMLRecord(std::string _id, std::string _type) : id(_id), type(_type) {}
+      XMLRecord(std::string _id, std::string _type,
+                std::vector<std::string> _in,
+                std::vector<std::string> _out) : id(_id), type(_type), in(_in), out(_out) {}
+      std::string id;
+      std::string type;
+      std::vector<std::string> in;
+      std::vector<std::string> out;
+    };
+    std::unordered_map<std::string, XMLRecord> xmlmap;
 
 		std::map<std::string, std::string> wires_on_demand;
 		for (auto &it : module->wires_) {
@@ -351,11 +366,15 @@ struct ShowWorker
                   id2num(it.first), shape, findLabel(it.first.str()),
                   nextColor(RTLIL::SigSpec(it.second), "color=\"black\"").c_str());
         }
-				if (it.second->port_input)
-					all_sources.insert(stringf("n%d", id2num(it.first)));
-				else if (it.second->port_output)
-					all_sinks.insert(stringf("n%d", id2num(it.first)));
-        else {
+				if (it.second->port_input) {
+          std::string id = stringf("n%d", id2num(it.first));
+					all_sources.insert(id);
+          xmlmap[id] = XMLRecord(id, "IN");
+				} else if (it.second->port_output) {
+          std::string id = stringf("n%d", id2num(it.first));
+					all_sinks.insert(id);
+          xmlmap[id] = XMLRecord(id, "OUT");
+        } else {
           all_internals.insert(stringf("n%d", id2num(it.first)));
         }
 			} else {
@@ -399,9 +418,13 @@ struct ShowWorker
 			std::sort(out_ports.begin(), out_ports.end(), RTLIL::sort_by_id_str());
 
 			std::string label_string = "{{";
+      std::vector<std::string> in;
 
-			for (auto &p : in_ports)
+			for (auto &p : in_ports) {
 				label_string += stringf("<p%d>|", id2num(p));
+        std::string id = stringf("p%d", id2num(p));
+        in.emplace_back(id);
+      }
 			if (label_string[label_string.size()-1] == '|')
 				label_string = label_string.substr(0, label_string.size()-1);
 
@@ -409,8 +432,12 @@ struct ShowWorker
       name_str = name_str.substr(2, name_str.length() - 3);
 			label_string += stringf("}|%s|{", name_str.c_str());
 
-			for (auto &p : out_ports)
+      std::vector<std::string> out;
+			for (auto &p : out_ports) {
 				label_string += stringf("<p%d>|", id2num(p));
+        std::string id = stringf("p%d", id2num(p));
+        out.emplace_back(id);
+      }
 			if (label_string[label_string.size()-1] == '|')
 				label_string = label_string.substr(0, label_string.size()-1);
 
@@ -430,6 +457,8 @@ struct ShowWorker
 #endif
 				fprintf(f, "c%d [ shape=record, label=\"%s\"%s ];\n%s",
 						id2num(it.first), label_string.c_str(), findColor(it.first.str()), code.c_str());
+      std::string id = stringf("c%d", id2num(it.first));
+      xmlmap[id] = XMLRecord(id, name_str, in, out);
 		}
 
 		for (auto &it : module->processes)
@@ -522,35 +551,58 @@ struct ShowWorker
 						fprintf(f, "%s:e -> %s:w [%s, %s];\n", from.c_str(), to.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
 					continue;
 				}
-				if (it.second.in.size() == 0 || it.second.out.size() == 0)
+				if (it.second.in.size() == 0 || it.second.out.size() == 0) {
 					fprintf(f, "%s [ shape=diamond, label=\"%s\" ];\n", it.first.c_str(), findLabel(wires_on_demand[it.first]));
-				else
+				} else {
 					fprintf(f, "%s [ shape=point ];\n", it.first.c_str());
+          xmlmap[it.first] = XMLRecord(it.first, "POINT");
+        }
 			}
 
       if (all_internals.find(it.first) != all_internals.end()) {
         if (it.second.out.size() == 1) {
           if (it.second.in.size() != 1) throw std::runtime_error("two drivers detected");
           fprintf(f, "%s:e -> %s:w [%s, %s];\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
+          fprintf(f2, "  <conn from=\"%s\" cell=\"%s\" />\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str());
           continue;
         } else {
 					fprintf(f, "%s [ shape=point ];\n", it.first.c_str());
+          xmlmap[it.first] = XMLRecord(it.first, "POINT");
         }
       }
-			for (auto &it2 : it.second.in)
+			for (auto &it2 : it.second.in) {
 				fprintf(f, "%s:e -> %s:w [%s, %s];\n", it2.c_str(), it.first.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
-			for (auto &it2 : it.second.out)
+        fprintf(f2, "  <inconn from=\"%s\" cell=\"%s\" />\n", it2.c_str(), it.first.c_str());
+      }
+			for (auto &it2 : it.second.out) {
 				fprintf(f, "%s:e -> %s:w [%s, %s];\n", it.first.c_str(), it2.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
+        fprintf(f2, "  <outconn from=\"%s\" cell=\"%s\" />\n", it.first.c_str(), it2.c_str());
+      }
 		}
 
 		fprintf(f, "}\n");
+    for (const auto& it : xmlmap) {
+      std::string in_str;
+      for (const auto& elem : it.second.in) {
+        in_str += elem + ", ";
+      }
+      in_str = in_str.substr(0, in_str.length() - 2);
+      std::string out_str;
+      for (const auto& elem : it.second.out) {
+        out_str += elem + ", ";
+      }
+      out_str = out_str.substr(0, out_str.length() - 2);
+      fprintf(f2, "  <elem id=\"%s\" type=\"%s\" in=\"%s\" out=\"%s\" />\n", it.second.id.c_str(), it.second.type.c_str(), in_str.c_str(), out_str.c_str());
+    }
+
+		fprintf(f2, "</module>\n");
 	}
 
-	ShowWorker(FILE *f, RTLIL::Design *design, std::vector<RTLIL::Design*> &libs, uint32_t colorSeed, bool genWidthLabels,
+	ShowWorker(FILE *f, FILE *f2, RTLIL::Design *design, std::vector<RTLIL::Design*> &libs, uint32_t colorSeed, bool genWidthLabels,
 			bool genSignedLabels, bool stretchIO, bool enumerateIds, bool abbreviateIds, bool notitle,
 			const std::vector<std::pair<std::string, RTLIL::Selection>> &color_selections,
 			const std::vector<std::pair<std::string, RTLIL::Selection>> &label_selections, RTLIL::IdString colorattr) :
-			f(f), design(design), currentColor(colorSeed), genWidthLabels(genWidthLabels),
+      f(f), f2(f2), design(design), currentColor(colorSeed), genWidthLabels(genWidthLabels),
 			genSignedLabels(genSignedLabels), stretchIO(stretchIO), enumerateIds(enumerateIds), abbreviateIds(abbreviateIds),
 			notitle(notitle), color_selections(color_selections), label_selections(label_selections), colorattr(colorattr)
 	{
@@ -809,6 +861,7 @@ struct ShowPass : public Pass {
 			log_header(design, "Continuing show pass.\n");
 
 		std::string dot_file = stringf("%s.dot", prefix.c_str());
+		std::string xml_file = stringf("%s.xml", prefix.c_str());
 		std::string out_file = stringf("%s.%s", prefix.c_str(), format.empty() ? "svg" : format.c_str());
 
 		log("Writing dot description to `%s'.\n", dot_file.c_str());
@@ -818,8 +871,16 @@ struct ShowPass : public Pass {
 				delete lib;
 			log_cmd_error("Can't open dot file `%s' for writing.\n", dot_file.c_str());
 		}
-		ShowWorker worker(f, design, libs, colorSeed, flag_width, flag_signed, flag_stretch, flag_enum, flag_abbreviate, flag_notitle, color_selections, label_selections, colorattr);
+		log("Writing xml description to `%s'.\n", xml_file.c_str());
+		FILE *f2 = fopen(xml_file.c_str(), "w");
+		if (f2 == NULL) {
+			for (auto lib : libs)
+				delete lib;
+			log_cmd_error("Can't open xml file `%s' for writing.\n", xml_file.c_str());
+		}
+		ShowWorker worker(f, f2, design, libs, colorSeed, flag_width, flag_signed, flag_stretch, flag_enum, flag_abbreviate, flag_notitle, color_selections, label_selections, colorattr);
 		fclose(f);
+		fclose(f2);
 
 		for (auto lib : libs)
 			delete lib;
