@@ -563,7 +563,7 @@ struct ShowWorker
         if (it.second.out.size() == 1) {
           if (it.second.in.size() != 1) throw std::runtime_error("two drivers detected");
           fprintf(f, "%s:e -> %s:w [%s, %s];\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
-          fprintf(f2, "  <conn from=\"%s\" cell=\"%s\" />\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str());
+          fprintf(f2, "  <conn from=\"%s\" to=\"%s\" />\n", it.second.in.begin()->c_str(), it.second.out.begin()->c_str());
           continue;
         } else {
 					fprintf(f, "%s [ shape=point ];\n", it.first.c_str());
@@ -572,11 +572,11 @@ struct ShowWorker
       }
 			for (auto &it2 : it.second.in) {
 				fprintf(f, "%s:e -> %s:w [%s, %s];\n", it2.c_str(), it.first.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
-        fprintf(f2, "  <inconn from=\"%s\" cell=\"%s\" />\n", it2.c_str(), it.first.c_str());
+        fprintf(f2, "  <inconn from=\"%s\" to=\"%s\" />\n", it2.c_str(), it.first.c_str());
       }
 			for (auto &it2 : it.second.out) {
 				fprintf(f, "%s:e -> %s:w [%s, %s];\n", it.first.c_str(), it2.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
-        fprintf(f2, "  <outconn from=\"%s\" cell=\"%s\" />\n", it.first.c_str(), it2.c_str());
+        fprintf(f2, "  <outconn from=\"%s\" to=\"%s\" />\n", it.first.c_str(), it2.c_str());
       }
 		}
 
