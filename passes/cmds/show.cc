@@ -547,8 +547,10 @@ struct ShowWorker
 					it.second.out.erase(*it.second.in.begin());
 				if (it.second.in.size() == 1 && it.second.out.size() == 1) {
 					std::string from = *it.second.in.begin(), to = *it.second.out.begin();
-					if (from != to || from.substr(0, 1) != "p")
+					if (from != to || from.substr(0, 1) != "p") {
 						fprintf(f, "%s:e -> %s:w [%s, %s];\n", from.c_str(), to.c_str(), nextColor(it.second.color).c_str(), widthLabel(it.second.bits).c_str());
+						fprintf(f2, "  <conn from=\"%s\" to=\"%s\" />\n", from.c_str(), to.c_str());
+          }
 					continue;
 				}
 				if (it.second.in.size() == 0 || it.second.out.size() == 0) {
